@@ -1,0 +1,30 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ctrl="using:ShortcutBoard.Mac.Controls"
+        x:Class="ShortcutBoard.Mac.Views.SettingsWindow"
+        Title="ShortcutBoard - 設定"
+        Width="460" Height="300"
+        CanResize="False"
+        Background="#1E1F22"
+        WindowStartupLocation="CenterScreen">
+
+    <Grid Margin="22" RowDefinitions="Auto,*,Auto">
+        <TextBlock Grid.Row="0" Text="設定" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,16" />
+
+        <StackPanel Grid.Row="1" Spacing="6">
+            <TextBlock Text="グローバルホットキー" Foreground="#A8ADB5" FontSize="12" />
+            <ctrl:KeyCaptureTextBox Text="{Binding HotkeyDisplay, Mode=TwoWay}" />
+            <TextBlock Text="ボックスをクリックし、修飾キー(Ctrl/Alt/Shift/Cmd)＋キー を押してください。"
+                       Foreground="#A8ADB5" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10" />
+
+            <CheckBox Content="ログイン時に自動起動する" IsChecked="{Binding RunAtStartup, Mode=TwoWay}" />
+            <TextBlock Text="サインイン時に ShortcutBoard をバックグラウンドで起動します（LaunchAgent）。"
+                       Foreground="#A8ADB5" FontSize="11" TextWrapping="Wrap" Margin="24,0,0,0" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button x:Name="CancelButton" Content="キャンセル" MinWidth="90" Click="Cancel_Click" />
+            <Button x:Name="OkButton" Content="OK" MinWidth="90" Click="Ok_Click" />
+        </StackPanel>
+    </Grid>
+</Window>

@@ -1,0 +1,19 @@
+# .NET build outputs
+[Bb]in/
+[Oo]bj/
+artifacts/
+ShortcutBoard/publish_sc/
+ShortcutBoard.Mac/publish*/
+
+# Distribution (locally built Windows installer / large binaries)
+ShortcutBoard/dist/*.exe
+ShortcutBoard/dist/*.zip
+
+# IDE / OS
+.vs/
+.idea/
+*.user
+.DS_Store
+
+ShortcutBoard/_archive/
+ShortcutBoard/installer/recovery-shortcuts.json

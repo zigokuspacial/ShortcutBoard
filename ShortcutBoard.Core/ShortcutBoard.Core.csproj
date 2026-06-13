@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ShortcutBoard</RootNamespace>
+    <AssemblyName>ShortcutBoard.Core</AssemblyName>
+    <!-- UIフレームワーク非依存。Windows/macOS 両方から参照される共通ロジック。 -->
+  </PropertyGroup>
+
+</Project>

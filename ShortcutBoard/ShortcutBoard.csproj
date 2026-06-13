@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>ShortcutBoard</AssemblyName>
+    <RootNamespace>ShortcutBoard</RootNamespace>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <Version>1.0.4</Version>
+    <Company>Personal</Company>
+    <Product>ShortcutBoard</Product>
+    <!-- Make single-file publish behave nicely -->
+    <SatelliteResourceLanguages>en;ja</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!-- WinForms の global using を外し、WPF 型(Application/Shortcut/KeyEventArgs 等)との
+       あいまいさを防ぐ。WinForms 型を使うファイルは明示的に using する。 -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+  </ItemGroup>
+
+  <!-- 共通ロジック（Models/Data/保存/ログ/検索）は Core を参照 -->
+  <ItemGroup>
+    <ProjectReference Include="..\ShortcutBoard.Core\ShortcutBoard.Core.csproj" />
+  </ItemGroup>
+
+</Project>

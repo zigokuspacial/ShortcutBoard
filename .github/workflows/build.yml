@@ -1,0 +1,74 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # ---------------- Windows 版（既存）のビルドテストを維持 ----------------
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: 共通ロジックの単体テスト
+        run: dotnet test ShortcutBoard.Tests/ShortcutBoard.Tests.csproj -c Release
+
+      - name: Windows 版(WPF)のビルド
+        run: dotnet build ShortcutBoard/ShortcutBoard.csproj -c Release
+
+  # ---------------- macOS 版（Avalonia）のビルド・テスト・配布物生成 ----------------
+  macos:
+    runs-on: macos-14   # Apple Silicon ランナー
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: 共通ロジックの単体テスト（macOS 上）
+        run: dotnet test ShortcutBoard.Tests/ShortcutBoard.Tests.csproj -c Release
+
+      - name: 発行＋.app/.dmg 生成（Apple Silicon / osx-arm64）
+        run: |
+          dotnet publish ShortcutBoard.Mac/ShortcutBoard.Mac.csproj \
+            -c Release -r osx-arm64 --self-contained true -p:PublishSingleFile=false \
+            -o artifacts/publish/arm64
+          chmod +x build/mac/make-bundle.sh
+          build/mac/make-bundle.sh artifacts/publish/arm64 artifacts/AppleSilicon AppleSilicon
+
+      - name: 発行＋.app/.dmg 生成（Intel / osx-x64）
+        run: |
+          dotnet publish ShortcutBoard.Mac/ShortcutBoard.Mac.csproj \
+            -c Release -r osx-x64 --self-contained true -p:PublishSingleFile=false \
+            -o artifacts/publish/x64
+          build/mac/make-bundle.sh artifacts/publish/x64 artifacts/Intel Intel
+
+      - name: セルフテスト（設定・一覧の読み書き / UI 無し）
+        run: |
+          ./artifacts/AppleSilicon/ShortcutBoard.app/Contents/MacOS/ShortcutBoard --selftest
+
+      - name: 起動確認（起動直後にクラッシュしないこと）
+        run: |
+          open ./artifacts/AppleSilicon/ShortcutBoard.app
+          sleep 6
+          if pgrep -x ShortcutBoard >/dev/null; then
+            echo "OK: アプリは起動して常駐しています"
+          else
+            echo "ERROR: 起動直後にプロセスが終了しました（クラッシュの可能性）"
+            exit 1
+          fi
+          pkill -x ShortcutBoard || true
+
+      - name: .dmg を Artifacts としてアップロード
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShortcutBoard-macOS-dmg
+          path: artifacts/**/*.dmg
+          if-no-files-found: error
