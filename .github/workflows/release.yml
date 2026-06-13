@@ -1,0 +1,165 @@
+name: release
+
+# 手動実行専用。version を入れて実行すると、ビルド→テスト→インストーラー生成→
+# 個人データ混入チェック→GitHub Release 作成→Setup.exe 添付 までを自動で行う。
+# 既存の build.yml（push/PR の通常ビルド）とは独立。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "リリースするバージョン（例: 1.0.5）。先頭に v は付けない"
+        required: true
+        type: string
+
+permissions:
+  contents: write   # Release 作成・アセット添付に必要（GITHUB_TOKEN を使用。PAT 不要）
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # gh CLI 用（標準トークン）
+    steps:
+      - name: チェックアウト
+        uses: actions/checkout@v4
+
+      - name: .NET 8 セットアップ
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: バージョン入力の検証
+        shell: pwsh
+        run: |
+          $v = "${{ github.event.inputs.version }}".Trim()
+          if ($v -notmatch '^\d+\.\d+\.\d+$') {
+            Write-Error "version は 1.0.5 の形式で指定してください（入力: '$v'）"
+            exit 1
+          }
+          "VER=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "指定バージョン: $v"
+
+      - name: 共通ロジックの単体テスト
+        shell: pwsh
+        run: dotnet test ShortcutBoard.Tests/ShortcutBoard.Tests.csproj -c Release
+
+      - name: バージョンを指定値へ更新（csproj / iss）
+        shell: pwsh
+        run: |
+          $v = $env:VER
+          $csproj = "ShortcutBoard/ShortcutBoard.csproj"
+          $iss    = "ShortcutBoard/installer/ShortcutBoard.iss"
+          (Get-Content $csproj -Raw -Encoding utf8) `
+            -replace '<Version>\d+\.\d+\.\d+</Version>', "<Version>$v</Version>" |
+            Set-Content $csproj -Encoding utf8
+          (Get-Content $iss -Raw -Encoding utf8) `
+            -replace '#define MyAppVersion "\d+\.\d+\.\d+"', "#define MyAppVersion ""$v""" |
+            Set-Content $iss -Encoding utf8
+          "csproj: " + (Select-String -Path $csproj -Pattern '<Version>').Line.Trim()
+          "iss   : " + (Select-String -Path $iss -Pattern 'MyAppVersion' | Select-Object -First 1).Line.Trim()
+
+      - name: 自己完結型 publish（.NET 不要の単一 exe）
+        shell: pwsh
+        run: |
+          dotnet publish ShortcutBoard/ShortcutBoard.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -o ShortcutBoard/publish_sc
+
+      - name: Inno Setup の導入
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: インストーラー生成（ShortcutBoard-Setup.exe）
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { Write-Error "ISCC.exe が見つかりません: $iscc"; exit 1 }
+          & $iscc "ShortcutBoard\installer\ShortcutBoard.iss"
+          if ($LASTEXITCODE -ne 0) { Write-Error "ISCC のコンパイルに失敗"; exit 1 }
+
+      - name: 配布物が Setup.exe のみであることを確認
+        shell: pwsh
+        run: |
+          $extra = Get-ChildItem "ShortcutBoard/dist" -File |
+                   Where-Object { $_.Name -ne 'ShortcutBoard-Setup.exe' }
+          if ($extra) {
+            Write-Error ("dist に余分なファイル: " + ($extra.Name -join ', '))
+            exit 1
+          }
+          if (-not (Test-Path "ShortcutBoard/dist/ShortcutBoard-Setup.exe")) {
+            Write-Error "ShortcutBoard-Setup.exe が生成されていません"; exit 1
+          }
+          "OK: dist は ShortcutBoard-Setup.exe のみ"
+
+      - name: 個人データ・個人語句の混入チェック
+        shell: pwsh
+        run: |
+          $setup = "ShortcutBoard/dist/ShortcutBoard-Setup.exe"
+          $bytes = [System.IO.File]::ReadAllBytes($setup)
+          $encs = @([Text.Encoding]::ASCII, [Text.Encoding]::Unicode, [Text.Encoding]::UTF8)
+          $keywords = @('taker','koseki','Clibor','Deepl','雑・談')
+          $found = @()
+          foreach ($e in $encs) {
+            $t = $e.GetString($bytes)
+            foreach ($k in $keywords) { if ($t.Contains($k)) { $found += $k } }
+          }
+          if (Test-Path "ShortcutBoard/publish_sc/recovery-shortcuts.json") { $found += 'recovery-shortcuts.json(publish_sc)' }
+          if (Test-Path "ShortcutBoard/dist/recovery-shortcuts.json")       { $found += 'recovery-shortcuts.json(dist)' }
+          if ($found.Count -gt 0) {
+            Write-Error ("個人データ/個人語句を検出: " + (($found | Select-Object -Unique) -join ', '))
+            exit 1
+          }
+          "OK: 個人データ・個人語句の混入なし"
+
+      - name: Release 本文の用意
+        shell: pwsh
+        run: |
+          $v = $env:VER
+          $notes = "docs/RELEASE_NOTES_v$v.md"
+          if (Test-Path $notes) {
+            "NOTES_FILE=$notes" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "リリースノートを使用: $notes"
+          } else {
+            $tmp = "release_body.md"
+            $lines = @(
+              "## ShortcutBoard v$v",
+              "",
+              "よく使うショートカットキーを自分用にまとめておける Windows 常駐アプリです。",
+              "Ctrl + Shift + A でいつでも一覧を表示できます。",
+              "",
+              "### ダウンロード",
+              "下の ShortcutBoard-Setup.exe を実行するだけ（.NET 不要・無料・Windows 10/11 64bit）。",
+              "",
+              "### インストール",
+              "1. ShortcutBoard-Setup.exe を実行",
+              "2. 「WindowsによってPCが保護されました」と出たら「詳細情報」→「実行」",
+              "3. ウィザードを進めて完了",
+              "",
+              "詳しい使い方は README を参照してください。"
+            )
+            $lines | Set-Content -Path $tmp -Encoding utf8
+            "NOTES_FILE=$tmp" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "リリースノートが無いためテンプレートを生成しました"
+          }
+
+      - name: GitHub Release 作成 ＋ Setup.exe 添付
+        shell: pwsh
+        run: |
+          $v = $env:VER
+          $tag = "v$v"
+          $title = "ShortcutBoard v$v"
+          # 同名タグが既にある場合は失敗させる（既存リリースを上書きしない）
+          $existing = gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Error "タグ $tag は既に存在します。別のバージョンを指定してください。"
+            exit 1
+          }
+          $url = gh release create $tag `
+            "ShortcutBoard/dist/ShortcutBoard-Setup.exe" `
+            --title $title `
+            --notes-file "$env:NOTES_FILE"
+          if ($LASTEXITCODE -ne 0) { Write-Error "Release 作成に失敗"; exit 1 }
+          Write-Host "Release URL: $url"
+          "### ✅ Release 作成完了`n$url" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
