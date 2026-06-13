@@ -21,6 +21,18 @@
 
 ---
 
+## スクリーンショット
+
+### 一覧表示画面
+
+![ShortcutBoard main screen](docs/images/main.png)
+
+### 編集画面
+
+![ShortcutBoard edit screen](docs/images/edit.png)
+
+---
+
 ## できること
 
 - 🔑 **グローバルホットキー**：どのアプリを使っていても `Ctrl + Shift + A` で一覧表示
