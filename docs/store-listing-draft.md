@@ -89,9 +89,11 @@ https://github.com/zigokuspacial/ShortcutBoard
 
 ## プライバシーポリシーURL候補
 ```
-案A: リポジトリに PRIVACY.md を追加し、その表示URL
-案B: GitHub Pages（無料）で公開
+推奨（作成済み）: https://github.com/zigokuspacial/ShortcutBoard/blob/main/docs/privacy-policy.md
+案B（任意）: GitHub Pages（無料）で公開
 ```
+> Partner Center のプロパティで「製品では個人情報を使用します = はい」にした場合、上記URLを入力する。
+> ※本アプリは外部送信しないが、ユーザー登録データをローカル保存するため、Store審査上は上記ポリシーで説明する。
 
 ### プライバシーポリシー本文（最小・無料ホスト用の下書き）
 ```
