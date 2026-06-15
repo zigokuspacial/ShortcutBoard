@@ -37,33 +37,40 @@ packaging/msix/
 ---
 
 ## 2. 本体コード変更の有無
-**今回の最小試作では本体コード変更は不要（0行）。**
 - 既存の自己完結 publish 出力をそのまま MSIX に同梱し、`Executable="ShortcutBoard.exe"` /
   `EntryPoint="Windows.FullTrustApplication"` で完全信頼起動する。
 - グローバルホットキー / トレイ常駐 / 単一起動 / 検索・編集・保存は完全信頼パッケージでそのまま動作。
 
-> 唯一あとで必要になるのは **自動起動**（下記§3）。これは本体コード変更を伴うため、
-> **今回は実装せず方針のみ**。実装着手前に理由・影響範囲を別途説明する。
+**自動起動対応のための本体変更（実装済み・最小）：**
+- WPF プロジェクトの TFM を `net8.0-windows` → `net8.0-windows10.0.19041.0`（WinRT `StartupTask` API 利用のため。WPF/WinForms はそのまま動作、未パッケージ版の挙動は不変）。
+- `Helpers/RuntimeContext.cs`（新規）：`GetCurrentPackageFullName` の P/Invoke で MSIX 実行かを判定。
+- `Services/StartupService.cs`：パッケージ時は `StartupTask` API、未パッケージ時は従来の `.lnk` に分岐。
+- それ以外の本体ロジック・Core・Mac・既存配布物には変更なし。
 
 ---
 
-## 3. 自動起動方式の違い（GitHub版 vs Store/MSIX版）
-| | GitHub版（現行） | Store/MSIX版（将来対応） |
+## 3. 自動起動方式の違い（GitHub版 vs Store/MSIX版）— 実装済み
+| | GitHub版 | Store/MSIX版 |
 |---|---|---|
-| 方式 | スタートアップフォルダに `.lnk` 作成（`StartupService`） | `windows.startupTask` マニフェスト拡張 ＋ `StartupTask` API |
-| 実装 | 実装済み・動作中 | 未実装 |
-| MSIXでの現行コードの挙動 | パッケージ環境では `.lnk` 書き込みが仮想化/不発になり得る（try/catchで**クラッシュはしない**が、自動起動は機能しない可能性） | 正式対応が必要 |
+| 方式 | スタートアップフォルダに `.lnk` 作成（`StartupService`） | `windows.startupTask` 拡張 ＋ `StartupTask` API |
+| 実装 | 実装済み・動作中 | **実装済み** |
+| 判定 | `RuntimeContext.IsPackaged == false` | `RuntimeContext.IsPackaged == true` |
 
-### 将来の実装方針（着手は別途承認後）
-1. `AppxManifest.xml` の `<Application>` に `uap5:Extension Category="windows.startupTask"` を追加（Id・DisplayName・有効/無効既定）。
-2. 本体側で「パッケージ実行かどうか」を判定して分岐：
-   - パッケージ時：`Windows.ApplicationModel.StartupTask` API で有効/無効を制御（`StartupService` をインターフェース化し Mac/Win/MSIX 実装を差し替え）。
-   - 非パッケージ時：現行の `.lnk` 方式を維持。
-   - 判定例：`Windows.ApplicationModel.Package.Current` 参照が例外なら非パッケージ。
-3. 影響範囲：`ShortcutBoard`（WPF）の `StartupService` 周辺のみ。Core/Mac/既存配布には影響させない。
+### 切り替えの仕組み
+- `RuntimeContext.IsPackaged`（`GetCurrentPackageFullName` の戻り値で判定）で実行環境を判別。
+- `StartupService.IsEnabled / SetEnabled / EnsureConsistency` が内部で分岐：
+  - **未パッケージ（GitHub版）**：従来どおり `.lnk`（＋旧レジストリ移行・自己修復）。**挙動は完全に不変**。
+  - **パッケージ（MSIX版）**：`StartupTask.GetAsync(TaskId)` → `State` 確認、`RequestEnableAsync()` / `Disable()`。
+- `AppxManifest.xml` に `windows.startupTask`（`TaskId="ShortcutBoardStartup"`, `Enabled="true"`）を宣言。
+  既定で自動起動が有効になり、設定画面のトグルと Windows「設定 > スタートアップ アプリ」の両方から制御できる。
+- TaskId はコード(`StartupService.StartupTaskId`)とマニフェストで一致必須。
 
-> **今回の試作では §3 は未実装**。MSIX が「起動して常駐する」ことの確認を最優先（要件4）。
-> 試作版では設定の「自動起動」トグルは Store 版で効かない場合がある旨を、提出時の説明に記載する。
+### 設定画面の動作（要件6）
+- 既存の「Windows 起動時に自動起動する」チェックは**UI変更なし**。
+- `ApplySettings → StartupService.SetEnabled()` が実行環境に応じて自動分岐するため、
+  Store版でも同じトグルで StartupTask の有効/無効が切り替わる。
+- 注意：ユーザーが Windows 設定/タスクマネージャーで手動無効化（`DisabledByUser`）した場合、
+  アプリからは再有効化できない（OS仕様）。その場合はログに記録し、無理に変更しない。
 
 ---
 

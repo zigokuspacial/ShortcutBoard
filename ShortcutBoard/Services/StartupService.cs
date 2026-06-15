@@ -1,23 +1,28 @@
 using System.Diagnostics;
 using System.IO;
 using Microsoft.Win32;
+using ShortcutBoard.Helpers;
+using Windows.ApplicationModel;
 
 namespace ShortcutBoard.Services;
 
 /// <summary>
-/// Windows 起動時の自動起動を管理する。
-///
-/// 方式: スタートアップフォルダ（shell:startup）への .lnk 作成。
-///  - タスクマネージャーの「スタートアップ アプリ」に確実に表示される
-///  - 管理者権限不要
-/// 旧方式（HKCU\...\Run のレジストリ値）が残っている場合は .lnk へ自動移行する。
+/// 自動起動を管理する。実行環境で方式を切り替える。
+///  - 未パッケージ（GitHub/開発のexe直接実行）: スタートアップフォルダ（shell:startup）への .lnk
+///  - MSIX パッケージ（Microsoft Store版）: windows.startupTask 拡張 ＋ StartupTask API
+/// 公開メソッド（IsEnabled / SetEnabled / EnsureConsistency）は実行環境に応じて内部で分岐する。
 /// </summary>
 public class StartupService
 {
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string ValueName = "ShortcutBoard";
 
+    // AppxManifest.xml の <uap5:StartupTask TaskId="..."> と一致させること
+    private const string StartupTaskId = "ShortcutBoardStartup";
+
     private readonly LogService _log = LogService.Instance;
+
+    private static bool Packaged => RuntimeContext.IsPackaged;
 
     private static string StartupFolder =>
         Environment.GetFolderPath(Environment.SpecialFolder.Startup);
@@ -25,8 +30,8 @@ public class StartupService
     /// <summary>スタートアップフォルダ内のショートカットのパス。</summary>
     public static string ShortcutLinkPath => Path.Combine(StartupFolder, "ShortcutBoard.lnk");
 
-    /// <summary>現在自動起動が有効か（.lnk または旧レジストリ値のいずれか）。</summary>
-    public bool IsEnabled() => LinkExists() || HasLegacyRunValue();
+    /// <summary>現在自動起動が有効か。</summary>
+    public bool IsEnabled() => Packaged ? PkgIsEnabled() : (LinkExists() || HasLegacyRunValue());
 
     /// <summary>.lnk 方式で登録済みか。</summary>
     public bool LinkExists()
@@ -37,6 +42,8 @@ public class StartupService
 
     public void SetEnabled(bool enabled)
     {
+        if (Packaged) { PkgSetEnabled(enabled); return; }
+
         if (enabled)
         {
             var ok = CreateStartupLink();
@@ -70,6 +77,7 @@ public class StartupService
     /// <returns>処理後に自動起動が有効なら true。</returns>
     public bool EnsureConsistency(bool settingsSayEnabled)
     {
+        if (Packaged) return PkgEnsureConsistency(settingsSayEnabled);
         try
         {
             // 旧方式からの移行
@@ -113,7 +121,80 @@ public class StartupService
         }
     }
 
-    // ---------------- 内部処理 ----------------
+    // ---------------- MSIX(StartupTask) 用 ----------------
+
+    private bool PkgIsEnabled()
+    {
+        try
+        {
+            var task = StartupTask.GetAsync(StartupTaskId).AsTask().GetAwaiter().GetResult();
+            return task.State is StartupTaskState.Enabled or StartupTaskState.EnabledByPolicy;
+        }
+        catch (Exception ex)
+        {
+            _log.Error("StartupTask の状態取得に失敗。", ex);
+            return false;
+        }
+    }
+
+    private void PkgSetEnabled(bool enabled)
+    {
+        try
+        {
+            var task = StartupTask.GetAsync(StartupTaskId).AsTask().GetAwaiter().GetResult();
+            if (enabled)
+            {
+                if (task.State == StartupTaskState.Disabled)
+                {
+                    var res = task.RequestEnableAsync().AsTask().GetAwaiter().GetResult();
+                    _log.Info($"自動起動(StartupTask)を有効化要求 → {res}");
+                }
+                else
+                {
+                    _log.Info($"自動起動(StartupTask)は既に {task.State}。");
+                }
+            }
+            else
+            {
+                if (task.State is StartupTaskState.Enabled or StartupTaskState.EnabledByPolicy)
+                {
+                    task.Disable();
+                    _log.Info("自動起動(StartupTask)を無効化しました。");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.Error("自動起動(StartupTask)の設定に失敗。", ex);
+        }
+    }
+
+    private bool PkgEnsureConsistency(bool settingsSayEnabled)
+    {
+        try
+        {
+            var task = StartupTask.GetAsync(StartupTaskId).AsTask().GetAwaiter().GetResult();
+            var enabled = task.State is StartupTaskState.Enabled or StartupTaskState.EnabledByPolicy;
+
+            // 設定ONなのにユーザー無効化以外で無効なら、有効化を試みる（自己修復）
+            if (settingsSayEnabled && task.State == StartupTaskState.Disabled)
+            {
+                var res = task.RequestEnableAsync().AsTask().GetAwaiter().GetResult();
+                enabled = res is StartupTaskState.Enabled or StartupTaskState.EnabledByPolicy;
+                _log.Info($"自動起動(StartupTask)自己修復 → {res}");
+            }
+
+            _log.Info($"自動起動状態: 設定={settingsSayEnabled}, 登録={enabled}, 方式=StartupTask(MSIX), 実状態={task.State}");
+            return enabled;
+        }
+        catch (Exception ex)
+        {
+            _log.Error("StartupTask の整合性チェックに失敗。", ex);
+            return false;
+        }
+    }
+
+    // ---------------- 内部処理 (.lnk / レジストリ) ----------------
 
     /// <summary>WScript.Shell COM で .lnk を作成する（外部ライブラリ不要）。</summary>
     private bool CreateStartupLink()
