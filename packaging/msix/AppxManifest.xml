@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ShortcutBoard Microsoft Store 用 MSIX マニフェスト（試作）
+  - 完全信頼パッケージ(full-trust packaged desktop app)として WPF/.NET exe を実行
+  - Identity / Publisher / PublisherDisplayName は Partner Center で予約した値に一致させること
+  - Version の第4桁(リビジョン)は Store 仕様により 0 固定
+  - $VERSION$ はビルド時に置換（build-msix.ps1 / msix.yml）
+-->
+<Package
+    xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+    xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+    xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+    IgnorableNamespaces="uap rescap">
+
+  <Identity
+      Name="E647CFB5.ShortcutBoard"
+      Publisher="CN=42DACE4F-C681-4106-89D1-B5D746E48DE1"
+      Version="$VERSION$"
+      ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>ShortcutBoard</DisplayName>
+    <PublisherDisplayName>地獄スペシャル</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="ja-JP" />
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Applications>
+    <Application Id="ShortcutBoard" Executable="ShortcutBoard.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+          DisplayName="ShortcutBoard"
+          Description="よく使うショートカットキーをまとめておける常駐アプリ。Ctrl + Shift + A で一覧表示。"
+          BackgroundColor="transparent"
+          Square150x150Logo="Assets\Square150x150Logo.png"
+          Square44x44Logo="Assets\Square44x44Logo.png" />
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- WPF/Win32 を完全信頼で実行するための宣言（デスクトップアプリでは標準・許可される） -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+
+</Package>

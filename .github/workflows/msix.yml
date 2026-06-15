@@ -1,0 +1,65 @@
+name: msix
+
+# Microsoft Store 提出用の MSIX を生成して Artifacts に上げる（手動実行）。
+# 署名はしない（Store にアップロードすると Microsoft が署名する）。
+# 既存の build.yml / release.yml / Inno Setup 配布には一切影響しない独立ワークフロー。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "MSIX バージョン（例: 1.0.4）。第4桁(.0)は自動付与"
+        required: true
+        type: string
+        default: "1.0.4"
+
+permissions:
+  contents: read
+
+jobs:
+  msix:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: バージョン検証
+        shell: pwsh
+        run: |
+          $v = "${{ github.event.inputs.version }}".Trim()
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { Write-Error "version は 1.0.4 形式"; exit 1 }
+          "PKG_VERSION=$v.0" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: 自己完結 publish（ばらファイル構成）
+        shell: pwsh
+        run: |
+          dotnet publish ShortcutBoard/ShortcutBoard.csproj `
+            -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false `
+            -o packaging/msix/layout
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: マニフェスト＋Assets をレイアウトへ
+        shell: pwsh
+        run: |
+          (Get-Content packaging/msix/AppxManifest.xml -Raw -Encoding UTF8).Replace('$VERSION$', $env:PKG_VERSION) |
+            Set-Content packaging/msix/layout/AppxManifest.xml -Encoding UTF8
+          Copy-Item packaging/msix/Assets packaging/msix/layout/Assets -Recurse -Force
+
+      - name: MakeAppx で MSIX 生成（署名なし）
+        shell: pwsh
+        run: |
+          $makeappx = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter makeappx.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $makeappx) { Write-Error "makeappx.exe が見つかりません"; exit 1 }
+          & $makeappx.FullName pack /d packaging/msix/layout /p packaging/msix/ShortcutBoard.msix /o
+          if ($LASTEXITCODE -ne 0) { Write-Error "MakeAppx 失敗"; exit 1 }
+          "生成: packaging/msix/ShortcutBoard.msix ($env:PKG_VERSION)"
+
+      - name: MSIX を Artifacts へアップロード
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShortcutBoard-msix
+          path: packaging/msix/ShortcutBoard.msix
+          if-no-files-found: error

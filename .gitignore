@@ -17,3 +17,7 @@ ShortcutBoard/dist/*.zip
 
 ShortcutBoard/_archive/
 ShortcutBoard/installer/recovery-shortcuts.json
+
+# MSIX build outputs (生成物はコミットしない。manifest/Assets/scriptのみ追跡)
+packaging/msix/layout/
+packaging/msix/*.msix
